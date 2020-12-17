@@ -8,9 +8,11 @@ toolkit_B_zip_name=1f53ec496de0fcb80f1b05485c0195ba
 # download
 wget https://img.atcoder.jp/hokudai-hitachi2020/${toolkit_A_zip_name}.zip
 wget https://img.atcoder.jp/hokudai-hitachi2020/${toolkit_B_zip_name}.zip
-unzip -f ${toolkit_A_zip_name}
-unzip -f ${toolkit_B_zip_name}
+
+# unzip
+unzip -o ${toolkit_A_zip_name}
+unzip -o ${toolkit_B_zip_name}
+
+# remove zips
 rm -f ${toolkit_A_zip_name}.zip 
 rm -f ${toolkit_B_zip_name}.zip
-
-ls
