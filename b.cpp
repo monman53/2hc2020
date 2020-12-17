@@ -1,621 +1,203 @@
-#include <cassert>
-#include <cmath>
-#include <cstdio>
-#include <fstream>
 #include <iostream>
-#include <list>
-#include <map>
-#include <memory>
-#include <random>
-#include <set>
-#include <sstream>
-#include <string>
-#include <unistd.h>
-#include <vector>
-FILE *log_dest = stderr;
-using namespace std;
-struct graph_data {
-  constexpr static size_t MaxDegree = 5;
-  size_t V, E;
-  std::map<size_t, std::map<size_t, size_t>> edges;
-  graph_data(std::istream &src) {
-    src >> V >> E;
-    for (size_t i = 0; i < E; ++i) {
-      size_t u, v, d;
-      src >> u >> v >> d;
-      --u, --v;
-      edges[u][v] = d;
-      edges[v][u] = d;
-    }
-    for ([[maybe_unused]] auto &[u, connects] : edges) {
+
+#ifdef NDEBUG
+#define DEBUG false
+#else
+#define DEBUG true
+#endif
+
+//================
+// paramters
+//================
+constexpr int p_N_solution = 5;
+// graph
+constexpr int p_V = 225;
+int p_E;
+constexpr int _p_E_max = p_V * 2;
+int p_u[_p_E_max], p_v[_p_E_max], p_d[_p_E_max];
+// the weather pattern
+enum DayType {
+  sunny_without_downpour,
+  sunny_with_downpour,
+  rany_without_sudden_clear_sky,
+  rany_with_sudden_clear_sky
+};
+DayType p_day_type;
+// power predict
+constexpr int p_N_div = 20;
+constexpr int p_N_pattern = 3;
+constexpr int p_variance_ele = 100;
+double p_p_event;
+constexpr int p_Delta_event = 1000;
+int p_pw_predict[p_N_pattern][p_N_div];
+// grid
+constexpr int p_N_grid = 20;
+constexpr int p_C_grid_init = 25000;
+constexpr int p_C_grid_max = 50000;
+constexpr int p_V_grid_max = 800;
+int p_x[p_N_grid];
+int p_pattern[p_N_grid];
+// EV
+constexpr int p_N_EV_min = 15;
+constexpr int p_N_EV_max = 25;
+int p_N_EV;
+constexpr int p_C_EV_init = 12500;
+constexpr int p_C_EV_max = 25000;
+constexpr int p_V_EV_max = 400;
+constexpr int p_N_trans_max = 4;
+constexpr int p_Delta_EV_move = 50;
+int p_pos[p_N_EV_max];
+// transport
+constexpr double p_p_const_trans = 0.7;
+constexpr int p_T_last = 900;
+// score
+constexpr int p_P_trans = 3000;
+constexpr double p_gamma = 2.0;
+constexpr int p_S_ref_ele = -1'500'000;   // TODO: long?
+constexpr int p_S_ref_trans = -1'500'000; // TODO: long?
+constexpr int p_T_max = 1000;
+
+// interactive inputs
+int i_x[p_N_grid];
+int i_y[p_N_grid];
+int i_pw_actual[p_N_grid];
+int i_pw_excess[p_N_grid];
+int i_pw_buy[p_N_grid];
+// carinfo
+int i_charge[p_N_EV_max];
+int i_u[p_N_EV_max], i_v[p_N_EV_max];
+int i_dist_from_u[p_N_EV_max], i_dist_to_v[p_N_EV_max];
+constexpr int _i_N_adj_max = 5;
+int i_N_adj[p_N_EV_max], i_a[p_N_EV_max][_i_N_adj_max];
+constexpr int _i_N_order_max = p_N_trans_max;
+int i_N_order[p_N_EV_max], i_o[p_N_EV_max][_i_N_order_max];
+// order rest
+int i_N_order_rest;
+constexpr int _i_N_order_rest_max = p_T_last;
+int i_id[_i_N_order_max];
+int i_w[_i_N_order_max];
+int i_z[_i_N_order_max];
+int i_state[_i_N_order_max];
+int i_time[_i_N_order_max];
+
+// score inputs
+double s_S_trans, s_S_ele;
+
+// variable for dummy inputs
+int int_dummy;
+double double_dummy;
+
+void get_io_form_1() {
+  std::cin >> int_dummy /* p_N_solution */;
+  std::cin >> int_dummy /* p_V */ >> p_E;
+  for (int i = 0; i < p_E; i++) {
+    std::cin >> p_u[i] >> p_v[i] >> p_d[i];
+  }
+  int _p_day_type_int;
+  std::cin >> _p_day_type_int;
+  if (_p_day_type_int == 0)
+    p_day_type = sunny_without_downpour;
+  if (_p_day_type_int == 1)
+    p_day_type = sunny_with_downpour;
+  if (_p_day_type_int == 2)
+    p_day_type = rany_without_sudden_clear_sky;
+  if (_p_day_type_int == 3)
+    p_day_type = rany_with_sudden_clear_sky;
+  std::cin >> int_dummy /* p_N_div */ >> int_dummy /* p_N_pattern */ >>
+      int_dummy /* p_variance_ele */ >> p_p_event >>
+      int_dummy /* p_Delta_event */;
+  for (int i = 0; i < p_N_pattern; i++) {
+    for (int j = 0; j < p_N_div; j++) {
+      std::cin >> p_pw_predict[i][j];
     }
   }
-};
-struct grid_data {
-  size_t DayType;
-  size_t N_div, N_pattern, sigma_ele, Delta_event;
-  double p_event;
-  std::vector<std::vector<int>> pw_predict;
-  size_t N_grid, C_grid_init, C_grid_max, V_grid_max;
-  std::vector<size_t> x, pattern;
-  grid_data() = default;
-  grid_data(const grid_data &) = default;
-  grid_data(std::istream &src) {
-    src >> DayType;
-    src >> N_div >> N_pattern >> sigma_ele >> p_event >> Delta_event;
-    pw_predict.resize(N_pattern);
-    for (size_t i = 0; i < N_pattern; ++i) {
-      pw_predict[i].resize(N_div);
-      for (size_t j = 0; j < N_div; ++j) {
-        src >> pw_predict[i][j];
-      }
-    }
-    src >> N_grid >> C_grid_init >> C_grid_max >> V_grid_max;
-    x.resize(N_grid);
-    pattern.resize(N_grid);
-    for (size_t i = 0; i < N_grid; ++i) {
-      src >> x[i] >> pattern[i];
-      --x[i];
-      --pattern[i];
-    }
+  std::cin >> int_dummy /* p_N_grid */ >> int_dummy /* p_C_grid_init */ >>
+      int_dummy /* p_C_grid_max */ >> int_dummy /* p_V_grid_max */;
+  for (int i = 0; i < p_N_grid; i++) {
+    std::cin >> p_x[i] >> p_pattern[i];
   }
-  grid_data &operator=(const grid_data &) = default;
-};
-struct EV_data {
-  size_t N_EV, C_EV_init, C_EV_max, V_EV_max, N_trans_max, Delta_EV_move;
-  std::vector<size_t> pos;
-  EV_data(std::istream &src) {
-    src >> N_EV >> C_EV_init >> C_EV_max >> V_EV_max >> N_trans_max >>
-        Delta_EV_move;
-    pos.resize(N_EV);
-    for (size_t i = 0; i < N_EV; ++i) {
-      src >> pos[i];
-      --pos[i];
-    }
+  std::cin >> p_N_EV >> int_dummy /* p_C_EV_init */ >>
+      int_dummy /* p_C_EV_max */ >> int_dummy /* p_V_EV_max */ >>
+      int_dummy /* p_N_trans_max */ >> int_dummy /* p_Delta_EV_move */;
+  for (int i = 0; i < p_N_EV; i++) {
+    std::cin >> p_pos[i];
   }
-};
-struct A {
-  graph_data graph;
-  grid_data grid;
-  EV_data EV;
-  double gamma;
-  size_t T_max;
-  A(std::istream &src) : graph(src), grid(src), EV(src) {
-    for (size_t i = 0; i < grid.N_grid; ++i) {
-    }
-    src >> gamma;
-    src >> T_max;
+  std::cin >> double_dummy /* p_p_const_trans */ >> int_dummy /* p_T_last */;
+  std::cin >> int_dummy /* p_P_trans */ >> double_dummy /* p_gamma */ >>
+      int_dummy /* p_S_ref_ele */ >> int_dummy /* p_S_ref_trans */;
+  std::cin >> int_dummy /* p_T_max */;
+
+  if constexpr (DEBUG) {
+    std::cerr << "get_io_form_1 done" << std::endl;
   }
-};
-struct B {
-  graph_data graph;
-  grid_data grid;
-  EV_data EV;
-  double p_const_trans;
-  size_t T_last;
-  size_t P_trans;
-  double gamma;
-  int S_ref_ele, S_ref_trans;
-  size_t T_max;
-  B(std::istream &src) : graph(src), grid(src), EV(src) {
-    for (size_t i = 0; i < grid.N_grid; ++i) {
-    }
-    src >> p_const_trans >> T_last;
-    src >> P_trans >> gamma >> S_ref_ele >> S_ref_trans;
-    src >> T_max;
-  }
-};
-struct carinfo {
-  size_t charge;
-  size_t u, v, dist_from_u, dist_to_v;
-  size_t N_adj;
-  std::vector<size_t> a;
-  size_t N_order;
-  std::vector<size_t> o;
-  void load(std::istream &src, [[maybe_unused]] size_t C_EV_max = 25000,
-            [[maybe_unused]] size_t V = 225,
-            [[maybe_unused]] size_t MaxDegree = 5,
-            [[maybe_unused]] size_t N_trans_max = 4,
-            [[maybe_unused]] size_t T_last = 900) {
-    src >> charge;
-    src >> u >> v >> dist_from_u >> dist_to_v;
-    --u, --v;
-    src >> N_adj;
-    a.resize(N_adj);
-    for (size_t i = 0; i < N_adj; ++i) {
-      src >> a[i];
-      --a[i];
-    }
-    src >> N_order;
-    o.resize(N_order);
-    for (size_t i = 0; i < N_order; ++i) {
-      src >> o[i];
-      --o[i];
-    }
-  }
-};
-struct grid_info {
-  size_t N_grid;
-  std::vector<size_t> x, y;
-  std::vector<int> pw_actual;
-  std::vector<size_t> pw_excess, pw_buy;
-  grid_info() = default;
-  grid_info(size_t N_grid)
-      : N_grid(N_grid), x(N_grid), y(N_grid), pw_actual(N_grid),
-        pw_excess(N_grid), pw_buy(N_grid) {}
-  void load(std::istream &src, [[maybe_unused]] size_t V = 225,
-            [[maybe_unused]] size_t C_grid_max = 50000) {
-    for (size_t i = 0; i < N_grid; ++i) {
-      src >> x[i] >> y[i] >> pw_actual[i] >> pw_excess[i] >> pw_buy[i];
-      --x[i];
-    }
-  }
-};
-std::ostream &operator<<(std::ostream &dest, const grid_info &i) {
-  dest << "\tGrid info:\n";
-  for (size_t j = 0; j < i.N_grid; ++j)
-    dest << "\t\tx: " << i.x[j] << ", y: " << i.y[j]
-         << ", actual: " << i.pw_actual[j] << ", excess: " << i.pw_excess[j]
-         << ", buy: " << i.pw_buy[j] << "\n";
-  return dest;
 }
-struct EV_info {
-  size_t N_EV;
-  std::vector<carinfo> c;
-  EV_info() = default;
-  EV_info(size_t N_EV) : N_EV(N_EV), c(N_EV) {}
-  void load(std::istream &src) {
-    for (size_t i = 0; i < N_EV; ++i) {
-      c[i].load(src);
+
+void get_io_form_2(int solution_idx, int time) {
+  for (int i = 0; i < p_N_grid; i++) {
+    std::cin >> i_x[i] >> i_y[i] >> i_pw_actual[i] >> i_pw_excess[i] >>
+        i_pw_buy[i];
+  }
+  for (int i = 0; i < p_N_EV; i++) {
+    std::cin >> i_charge[i];
+    std::cin >> i_u[i] >> i_v[i] >> i_dist_from_u[i] >> i_dist_to_v[i];
+    std::cin >> i_N_adj[i];
+    for (int j = 0; j < i_N_adj[i]; j++) {
+      std::cin >> i_a[i][j];
+    }
+    std::cin >> i_N_order[i];
+    for (int j = 0; j < i_N_order[i]; j++) {
+      std::cin >> i_o[i][j];
     }
   }
-};
-std::ostream &operator<<(std::ostream &dest, const EV_info &i) {
-  dest << "\tEV info:\n";
-  for (size_t j = 0; j < i.N_EV; ++j)
-    dest << "\t\tcar " << j << "\n";
-  return dest;
+  std::cin >> i_N_order_rest;
+  for (int i = 0; i < i_N_order_rest; i++) {
+    std::cin >> i_id[i] >> i_w[i] >> i_z[i] >> i_state[i] >> i_time[i];
+  }
+
+  if constexpr (DEBUG) {
+    std::cerr << "get_io_form_2 done" << std::endl;
+  }
 }
-struct order_info {
-  size_t N_order;
-  std::vector<size_t> id, w, z, state, time;
-  order_info() = default;
-  void load(std::istream &src, [[maybe_unused]] size_t V = 225,
-            [[maybe_unused]] size_t T_last = 900) {
-    src >> N_order;
-    id.resize(N_order);
-    w.resize(N_order);
-    z.resize(N_order);
-    state.resize(N_order);
-    time.resize(N_order);
-    for (size_t i = 0; i < N_order; ++i) {
-      src >> id[i] >> w[i] >> z[i] >> state[i] >> time[i];
-      --w[i], --z[i];
-    }
+
+void post_io_form_2(int solution_idx, int time) {
+  for (int i = 0; i < p_N_EV; i++) {
+    std::cout << "stay" << std::endl;
   }
-};
-std::ostream &operator<<(std::ostream &dest, const order_info &i) {
-  dest << "\tOrder info: " << i.N_order << " orders left\n";
-  for (size_t j = 0; j < i.N_order; ++j)
-    dest << "\t\tid: " << i.id[j] << ", departure: " << i.w[j]
-         << ", arrival: " << i.z[j] << ", state: " << i.state[j]
-         << ", ordered at: " << i.time[j] << "\n";
-  return dest;
+
+  if constexpr (DEBUG) {
+    std::cerr << "post_io_form_2 done" << std::endl;
+  }
 }
-struct graph_summary {
-  vector<vector<size_t>> len;
-  vector<vector<size_t>> next;
-  vector<size_t> nanogrid_pos;
-  size_t diameter = 0;
-  size_t cover_radius = 0;
-  graph_summary(const graph_data &graph, const grid_data &grid)
-      : len(graph.V, std::vector<size_t>(graph.V, 1e9)),
-        next(graph.V, std::vector<size_t>(graph.V)), nanogrid_pos(grid.N_grid) {
-    const size_t V = graph.V;
-    for (size_t i = 0; i < V; ++i)
-      len[i][i] = 0;
-    for (size_t i = 0; i < V; ++i)
-      for (size_t j = 0; j < V; ++j)
-        next[i][j] = j;
-    for (const auto &[u, u_edges] : graph.edges)
-      for (const auto &[v, length] : u_edges) {
-        len[u][v] = length;
-        len[v][u] = length;
-      }
-    for (size_t k = 0; k < V; ++k)
-      for (size_t i = 0; i < V; ++i)
-        for (size_t j = 0; j < V; ++j)
-          if (len[i][j] > len[i][k] + len[k][j]) {
-            len[i][j] = len[i][k] + len[k][j];
-            next[i][j] = next[i][k];
-          }
-    nanogrid_pos = grid.x;
-    for (size_t i = 0; i < V; ++i)
-      for (size_t j = 0; j < V; ++j)
-        diameter = max(len[i][j], diameter);
-    for (size_t i = 0; i < V; ++i) {
-      size_t min_len = 1e9;
-      for (size_t j = 0; j < nanogrid_pos.size(); ++j)
-        min_len = min(min_len, len[i][j]);
-      cover_radius = max(cover_radius, min_len);
-    }
+
+void get_io_form_3(int solution_idx) {
+  std::cin >> s_S_trans >> s_S_ele;
+
+  if constexpr (DEBUG) {
+    std::cerr << "get_io_form_3 done" << std::endl;
   }
-};
-size_t transit_length(const std::vector<size_t> &path,
-                      const std::vector<std::vector<size_t>> &min_path_len) {
-  size_t len = 0;
-  for (size_t i = 1; i < path.size(); ++i)
-    len += min_path_len[path[i - 1]][path[i]];
-  return len;
 }
-size_t transit_length(const std::vector<pair<size_t, int>> &path,
-                      const std::vector<std::vector<size_t>> &min_path_len) {
-  size_t len = 0;
-  for (size_t i = 1; i < path.size(); ++i)
-    len += min_path_len[path[i - 1].first][path[i].first];
-  return len;
-}
-pair<size_t, size_t> nearest_point(size_t current, const vector<size_t> &points,
-                                   const graph_summary &gs) {
-  size_t len = 1e9, nearest_pos = -1, nearest_index = -1;
-  for (size_t i = 0; i < points.size(); ++i)
-    if (gs.len[current][points[i]] < len) {
-      len = gs.len[current][points[i]];
-      nearest_pos = points[i];
-      nearest_index = i;
-    }
-  return {nearest_index, nearest_pos};
-}
-pair<size_t, size_t> nearest_nanogrid(size_t current, const graph_summary &gs) {
-  return nearest_point(current, gs.nanogrid_pos, gs);
-}
-string path_string(const vector<pair<size_t, int>> &path) {
-  string ret;
-  for (auto [p, pickup] : path)
-    ret += " -> " + to_string(p + 1) +
-           (pickup != -1 ? "(pickup: " + to_string(pickup) + ")" : "");
-  return ret;
-}
-vector<pair<size_t, int>>
-find_transit_path_greedy(size_t current,
-                         const vector<tuple<size_t, size_t, size_t>> &order,
-                         const graph_summary &gs) {
-  for ([[maybe_unused]] auto [from, to, id] : order) {
-  }
-  vector<pair<size_t, int>> ret;
-  ret.reserve(2 * order.size());
-  vector<size_t> pickup_flag(order.size(), 0);
-  vector<size_t> index;
-  index.reserve(order.size());
-  vector<size_t> candidate;
-  candidate.reserve(2 * order.size());
-  size_t cur = current;
-  while (1) {
-    for (size_t i = 0; i < order.size(); ++i)
-      switch (pickup_flag[i]) {
-      case 0:
-        candidate.push_back(get<0>(order[i]));
-        index.push_back(i);
-        break;
-      case 1:
-        candidate.push_back(get<1>(order[i]));
-        index.push_back(i);
-        break;
-      default:;
-      }
-    if (candidate.size() == 0)
-      break;
-    for ([[maybe_unused]] auto p : candidate)
-      ;
-    auto [i, pos] = nearest_point(cur, candidate, gs);
-    ret.emplace_back(pos,
-                     pickup_flag[index[i]] == 0 ? get<2>(order[index[i]]) : -1);
-    pickup_flag[index[i]] += 1;
-    cur = pos;
-    candidate.clear();
-    index.clear();
-  }
-  return ret;
-}
-size_t path_length_test(size_t insert_point, size_t insert_index,
-                        const std::vector<size_t> &path,
-                        const std::vector<std::vector<size_t>> &min_path_len) {
-  size_t len = insert_index == 0 ? min_path_len[insert_point][path[0]] : 0;
-  for (size_t i = 1; i < path.size(); ++i)
-    if (insert_index == i)
-      len += min_path_len[path[i - 1]][insert_point] +
-             min_path_len[insert_point][path[i]];
-    else
-      len += min_path_len[path[i - 1]][path[i]];
-  len +=
-      insert_index == path.size() ? min_path_len[path.back()][insert_point] : 0;
-  return len;
-}
-struct action : std::list<std::string> {};
-struct move_EV : action {
-  move_EV(size_t current, size_t goal, const graph_summary &gs) {
-    for (size_t cur = current; cur != goal; cur = gs.next[cur][goal]) {
-      const size_t next = gs.next[cur][goal];
-      for (size_t count = 0; count < gs.len[cur][next]; ++count)
-        this->push_back("move " + std::to_string(next + 1));
-    }
-  }
-  move_EV(size_t current, const std::vector<size_t> &path,
-          const graph_summary &gs) {
-    size_t cur = current;
-    for (size_t goal : path)
-      for (; cur != goal; cur = gs.next[cur][goal]) {
-        const size_t next = gs.next[cur][goal];
-        for (size_t count = 0; count < gs.len[cur][next]; ++count)
-          this->push_back("move " + std::to_string(next + 1));
-      }
-  }
-};
-auto minimal_matching(const vector<size_t> &start, const vector<size_t> &goal,
-                      const graph_summary &gs) {
-  auto minimal_s = start.begin(), minimal_g = goal.begin();
-  size_t minimal_len = 1e9;
-  for (auto s = start.begin(); s != start.end(); ++s)
-    for (auto g = goal.begin(); g != goal.end(); ++g)
-      if (gs.len[*s][*g] < minimal_len) {
-        minimal_s = s;
-        minimal_g = g;
-        minimal_len = gs.len[*s][*g];
-      }
-  return make_pair(minimal_s, minimal_g);
-}
-template <class... Args>
-string strprintf(const char *fmt, const Args &... args) {
-  char buf[65536];
-  sprintf(buf, fmt, args...);
-  return buf;
-}
-template <class P> struct strategy : public P {
-  const graph_summary &gs;
-  vector<list<string>> command_queue;
-  strategy(const P &p, const graph_summary &gs)
-      : P(p), gs(gs), command_queue(P::EV.N_EV) {}
-  virtual void command(const grid_info &g_i, const EV_info &ev_i,
-                       const order_info &order_i) = 0;
-  virtual void initialize() {
-    for (auto &queue : command_queue)
-      queue.clear();
-  }
-  bool is_free(size_t EV_index) {
-    if (command_queue[EV_index].size() > 0) {
-      return false;
-    }
-    return true;
-  }
-  string dequeue(const EV_info &ev_i) {
-    string ret = "";
-    for (size_t i = 0; i < ev_i.N_EV; ++i)
-      ret += dequeue(i) + "\n";
-    return ret;
-  }
-  string dequeue(size_t EV_index) {
-    string ret;
-    if (command_queue[EV_index].size() > 0) {
-      ret = command_queue[EV_index].front();
-      command_queue[EV_index].pop_front();
-    } else {
-      ret = "stay";
-    }
-    return ret;
-  }
-  void enqueue(size_t EV_index, const string &cmd) {
-    command_queue[EV_index].push_back(cmd);
-  }
-  void enqueue(size_t EV_index, const string &cmd, size_t repeat) {
-    for (size_t i = 0; i < repeat; ++i)
-      command_queue[EV_index].push_back(cmd);
-  }
-  void enqueue(size_t EV_index, list<string> &&cmd_list) {
-    command_queue[EV_index].splice(command_queue[EV_index].end(), cmd_list);
-  }
-};
-template <class P> struct all_stay : strategy<P> {
-  all_stay(const P &p, const graph_summary &gs) : strategy<P>(p, gs) {}
-  void command(const grid_info &, const EV_info &, const order_info &) {}
-};
-template <class P> struct random_walk : strategy<P> {
-  using S = strategy<P>;
-  std::mt19937_64 engine;
-  random_walk(const P &p, const graph_summary &gs) : strategy<P>(p, gs) {}
-  void command(const grid_info &, const EV_info &ev_i, const order_info &) {
-    for (size_t n = 0; n < ev_i.N_EV; ++n) {
-      if (!S::is_free(n))
-        continue;
-      const size_t current = ev_i.c[n].u;
-      const size_t safety_energy = S::EV.Delta_EV_move * 50;
-      if (auto [_, pos] = nearest_nanogrid(current, S::gs); current != pos) {
-        const size_t len_to_charge = S::gs.len[current][pos];
-        const int expected_energy =
-            ev_i.c[n].charge - len_to_charge * S::EV.Delta_EV_move;
-        if (expected_energy < 0) {
-          S::enqueue(n, "stay", 1000);
-        } else
-          S::enqueue(n, move_EV(current, pos, S::gs));
-        continue;
-      } else {
-        if (ev_i.c[n].charge < safety_energy) {
-          S::enqueue(
-              n, strprintf("charge_from_grid %zu", S::EV.V_EV_max),
-              ceil(1.0 * (safety_energy - ev_i.c[n].charge) / S::EV.V_EV_max));
-          continue;
-        }
-      }
-      uniform_int_distribution<size_t> dice(0, ev_i.c[n].N_adj - 1);
-      const size_t goal = dice(engine);
-      S::enqueue(n, move_EV(current, ev_i.c[n].a[goal], S::gs));
-    }
-  }
-};
-struct transport_only_0 : strategy<B> {
-  std::set<size_t> assigned_order;
-  transport_only_0(const B &b, const graph_summary &gs) : strategy<B>(b, gs) {}
-  void initialize() {
-    strategy::initialize();
-    assigned_order.clear();
-  }
-  void command(const grid_info &, const EV_info &ev_i,
-               const order_info &order_i) {
-    for (size_t n = 0; n < ev_i.N_EV; ++n) {
-      if (!is_free(n))
-        continue;
-      const size_t current = ev_i.c[n].u;
-      const size_t safety_energy = EV.Delta_EV_move * 50;
-      if (auto [_, pos] = nearest_nanogrid(current, gs); current != pos) {
-        const size_t len_to_charge = gs.len[current][pos];
-        const int expected_energy =
-            ev_i.c[n].charge - len_to_charge * EV.Delta_EV_move;
-        if (expected_energy < 0) {
-          enqueue(n, "stay", 1000);
-        } else
-          enqueue(n, move_EV(current, pos, gs));
-        continue;
-      } else {
-        if (ev_i.c[n].charge < safety_energy) {
-          enqueue(n, strprintf("charge_from_grid %zu", EV.V_EV_max),
-                  ceil(1.0 * (safety_energy - ev_i.c[n].charge) / EV.V_EV_max));
-          continue;
-        }
-      }
-      std::set<size_t> unassigned_order;
-      for (size_t i = 0; i < order_i.N_order; ++i)
-        if (assigned_order.count(order_i.id[i]) == 0)
-          unassigned_order.insert(i);
-      if (unassigned_order.size() > 0) {
-        size_t count = 0;
-        std::vector<tuple<size_t, size_t, size_t>> assign_order;
-        while (!unassigned_order.empty() && count++ < EV.N_trans_max) {
-          const size_t order_index = *(unassigned_order.begin());
-          unassigned_order.erase(unassigned_order.begin());
-          const size_t from = order_i.w[order_index];
-          const size_t to = order_i.z[order_index];
-          assign_order.emplace_back(from, to, order_i.id[order_index]);
-          assigned_order.insert(order_i.id[order_index]);
-        }
-        auto path = find_transit_path_greedy(current, assign_order, gs);
-        vector<size_t> transit;
-        transit.reserve(path.size() + 1);
-        const size_t expected_transit_length =
-            transit_length(path, gs.len) + gs.len[current][path[0].first];
-        if (ev_i.c[n].charge <
-            (expected_transit_length + gs.cover_radius) * EV.Delta_EV_move) {
-          enqueue(
-              n, strprintf("charge_from_grid %zu", EV.V_EV_max),
-              ((expected_transit_length + gs.cover_radius) * EV.Delta_EV_move -
-               ev_i.c[n].charge) /
-                      EV.V_EV_max +
-                  1);
-        }
-        size_t cur = current;
-        for (auto [to, pick_up] : path) {
-          enqueue(n, move_EV(cur, to, gs));
-          if (pick_up != -1)
-            enqueue(n, strprintf("pickup %d", pick_up));
-          cur = to;
-        }
-        continue;
-      } else {
-      }
-      continue;
-    }
-  }
-};
-vector<string> split_command(const string &command_pack) {
-  vector<string> ret;
-  stringstream reader(command_pack);
-  string line;
-  while (getline(reader, line)) {
-    if (line == "")
-      continue;
-    else
-      ret.emplace_back(line);
-  }
-  return ret;
-}
-enum command_type {
-  stay,
-  move,
-  pickup,
-  charge_from_grid,
-  charge_to_grid,
-  invalid_command
-};
-struct command {
-  command_type type;
-  size_t val;
-  command(command_type type, size_t val) : type(type), val(val) {}
-  string to_str() const {
-    switch (type) {
-    case command_type::stay:
-      return strprintf("stay");
-    case command_type::move:
-      return strprintf("move %zu", val);
-    case command_type::pickup:
-      return strprintf("pickup %zu", val);
-    case command_type::charge_from_grid:
-      return strprintf("charge_from_grid %zu", val);
-    case command_type::charge_to_grid:
-      return strprintf("charge_to_grid %zu", val);
-    default:
-      break;
-    }
-    return "";
-  }
-};
-command parser(const string &command) {
-  stringstream reader(command);
-  string command_str;
-  size_t value;
-  reader >> command_str >> value;
-  if (command_str == "stay") {
-    return {command_type::stay, 0};
-  } else if (command_str == "move") {
-    return {command_type::move, value};
-  } else if (command_str == "pickup") {
-    return {command_type::pickup, value};
-  } else if (command_str == "charge_from_grid") {
-    return {command_type::charge_from_grid, value};
-  } else if (command_str == "charge_to_grid") {
-    return {command_type::charge_to_grid, value};
-  }
-  return {invalid_command, (size_t)-1};
-}
+
+//================
+// main
+//================
+
 int main() {
-  setbuf(log_dest, nullptr);
-  size_t N_solution = 1;
-  cin >> N_solution;
-  B prob(cin);
-  std::shared_ptr<strategy<B>> str = nullptr;
-  graph_summary gs(prob.graph, prob.grid);
-  grid_info grid_i(prob.grid.N_grid);
-  EV_info ev_i(prob.EV.N_EV);
-  order_info order_i;
-  string command_per_turn;
-  vector<pair<double, double>> scores;
-  scores.reserve(N_solution);
-  for (size_t n = 0; n < N_solution; ++n) {
-    // str.reset(new all_stay<B>(prob, gs));
-    // str.reset(new random_walk<B>(prob, gs));
-    str.reset(new transport_only_0(prob, gs));
-    str->initialize();
-    for (size_t t = 0; t < prob.T_max; ++t) {
-      grid_i.load(cin);
-      ev_i.load(cin);
-      order_i.load(cin);
-      str->command(grid_i, ev_i, order_i);
-      command_per_turn = str->dequeue(ev_i);
-      auto command_list = split_command(command_per_turn);
-      cout << command_per_turn << flush;
+  get_io_form_1();
+  for (int i = 0; i < p_N_solution; i++) {
+    for (int j = 0; j < p_T_max; j++) {
+      get_io_form_2(i, j);
+      post_io_form_2(i, j);
+
+      if constexpr (DEBUG) {
+        std::cerr << "time " << j << " done" << std::endl;
+      }
     }
-    grid_i.load(cin);
-    ev_i.load(cin);
-    order_i.load(cin);
-    double S_trans, S_ele;
-    cin >> S_trans >> S_ele;
+    get_io_form_2(i, p_T_max);
+    get_io_form_3(i);
+
+    if constexpr (DEBUG) {
+      std::cerr << "solution " << i << " done" << std::endl;
+    }
   }
   return 0;
 }
